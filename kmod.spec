@@ -1,6 +1,6 @@
 Name:		kmod
 Version:	20
-Release:	15%{?dist}.6
+Release:	15%{?dist}.7
 Summary:	Linux kernel module management utilities
 
 Group:		System Environment/Kernel
@@ -18,6 +18,7 @@ Patch02:	kmod-0002-depmod-Ignore-PowerPC64-ABIv2-.TOC.-symbol.patch
 Patch03:	kmod-0003-libkmod-Handle-long-lines-in-proc-modules.patch
 Patch04:	kmod-0004-libkmod-elf-resolve-CRC-if-module-is-built-with-MODU.patch
 Patch05:	kmod-0005-depmod-backport-external-directories-support.patch
+Patch06:	kmod-0006-depmod-module_is_higher_priority-fix-modname-length-.patch
 
 BuildRequires:	chrpath
 BuildRequires:	zlib-devel
@@ -69,6 +70,7 @@ applications that wish to load or unload Linux kernel modules.
 %patch03 -p1 -b .0003-libkmod-Handle-long-lines-in-proc-modules
 %patch04 -p1 -b .0004-libkmod-elf-resolve-CRC-if-module-is-built-with-MODU
 %patch05 -p1 -b .0005-depmod-backport-external-directories-support
+%patch06 -p1 -b .0006-depmod-module_is_higher_priority-fix-modname-length-.patch
 
 %build
 export V=1
@@ -136,6 +138,10 @@ install -m 0644 %{SOURCE2} $RPM_BUILD_ROOT%{_sysconfdir}/depmod.d/dist.conf
 %{_libdir}/libkmod.so
 
 %changelog
+* Wed Dec 13 2017 Yauheni Kaliuta <ykaliuta@redhat.com> - 20-15.el7_4.7
+- depmod: module_is_higher_priority: fix modname length calculation.
+  Resolves: rhbz#1525364.
+
 * Thu Nov 16 2017 Yauheni Kaliuta <ykaliuta@redhat.com> - 20-15.el7_4.6
 - Backport external directories support.
   Related: rhbz#1511943.
