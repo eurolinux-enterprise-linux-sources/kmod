@@ -1,6 +1,6 @@
 Name:		kmod
 Version:	20
-Release:	15%{?dist}.7
+Release:	21%{?dist}
 Summary:	Linux kernel module management utilities
 
 Group:		System Environment/Kernel
@@ -138,36 +138,34 @@ install -m 0644 %{SOURCE2} $RPM_BUILD_ROOT%{_sysconfdir}/depmod.d/dist.conf
 %{_libdir}/libkmod.so
 
 %changelog
-* Wed Dec 13 2017 Yauheni Kaliuta <ykaliuta@redhat.com> - 20-15.el7_4.7
+* Fri Dec  8 2017 Yauheni Kaliuta <ykaliuta@redhat.com> - 20-21
 - depmod: module_is_higher_priority: fix modname length calculation.
-  Resolves: rhbz#1525364.
+  Resolves: rhbz#1522994
 
-* Thu Nov 16 2017 Yauheni Kaliuta <ykaliuta@redhat.com> - 20-15.el7_4.6
-- Backport external directories support.
-  Related: rhbz#1511943.
-
-* Fri Nov 10 2017 Yauheni Kaliuta <ykaliuta@redhat.com> - 20-15.el7_4.5
+* Thu Nov  9 2017 Yauheni Kaliuta <ykaliuta@redhat.com> - 20-20
 - weak-modules: use function to generate weak_updates_dir
 - weak-modules: implement dry-run on the tempdir
-  Resolves: rhbz#1511943.
+  Resolves: rhbz#1510058
 
-* Fri Sep 15 2017 Yauheni Kaliuta <ykaliuta@redhat.com> - 20-15.el7_4.4
-- bump up version for internal reasons.
-  Related: rhbz#1489696.
+* Thu Sep 14 2017 Yauheni Kaliuta <ykaliuta@redhat.com> - 20-19
+- weak-modules: fix dry-run for non-lib-modules installation
+  Resolves: rhbz#1477073
 
-* Thu Sep 14 2017 Yauheni Kaliuta <ykaliuta@redhat.com> - 20-15.el7_4.3
-- weak-modules: implement dry run by symlink restoration.
-- weak-modules: fix dry-run for non-lib-modules installation.
-  Resolves: rhbz#1489696.
+* Thu Aug 17 2017 Yauheni Kaliuta <ykaliuta@redhat.com> - 20-18
+- depmod: external directories support.
+  Resolves: rhbz#1361857
+- BuildRequires automake autoconf libtool.
 
-* Thu Aug 17 2017 Yauheni Kaliuta <ykaliuta@redhat.com> - 20-15.el7_4.2
+* Mon Aug  7 2017 Yauheni Kaliuta <ykaliuta@redhat.com> - 20-17
 - libkmod-elf: resolve CRC if module is built with MODULE_REL_CRCS.
 - weak-modules: process only weak-updates related depmod output.
-  Resolves: rhbz#1482385
+  Resolves: rhbz#1468305
+- weak-modules: implement dry run by symlink restoration.
+  Resolves: rhbz#1477073
 
-* Wed Jul 12 2017 Yauheni Kaliuta <ykaliuta@redhat.com> - 20-15.el7_4.1
-- weak-modules: fallback weak-modules state if incompatible installed
-  Resolves: rhbz#1469990
+* Wed Jul 12 2017 Yauheni Kaliuta <ykaliuta@redhat.com> - 20-16
+- weak-modules: fallback weak-modules state if incompatible installed.
+  Resolved: rhbz#1468042
 
 * Fri May 12 2017 Yauheni Kaliuta <ykaliuta@redhat.com> - 20-15
 - weak-modules: install weak link even if there is same name in extra.
