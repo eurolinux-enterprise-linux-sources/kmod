@@ -1,6 +1,6 @@
 Name:		kmod
 Version:	20
-Release:	23%{?dist}
+Release:	25%{?dist}
 Summary:	Linux kernel module management utilities
 
 Group:		System Environment/Kernel
@@ -138,6 +138,14 @@ install -m 0644 %{SOURCE2} $RPM_BUILD_ROOT%{_sysconfdir}/depmod.d/dist.conf
 %{_libdir}/libkmod.so
 
 %changelog
+* Wed Nov 21 2018 Yauheni Kaliuta <ykaliuta@redhat.com> - 20-25
+- weak-modules: do not make groups if there are no extra modules
+  Related: rhbz#1643299
+
+* Mon Nov 12 2018 Yauheni Kaliuta <ykaliuta@redhat.com> - 20-24
+- weak-modules: group modules on add-kernel.
+  Resolves: rhbz#1643299.
+
 * Tue Aug 28 2018 Yauheni Kaliuta <ykaliuta@redhat.com> - 20-23
 - weak-modules: fix initial state creation for dry-run
 - weak-modules: check compatibility in a temporary directory

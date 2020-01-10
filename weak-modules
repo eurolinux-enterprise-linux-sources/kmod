@@ -29,6 +29,9 @@ declare -a modules
 declare -A module_krels
 declare -A weak_modules_before
 
+declare -A groups
+declare -A grouped_modules
+
 # doit:
 # A wrapper used whenever we're going to perform a real operation.
 doit() {
@@ -368,6 +371,12 @@ is_kernel_installed() {
     local krel="$1"
 
     [[ -f "$BASEDIR/boot/symvers-$krel.gz" ]]
+}
+
+is_empty_file() {
+    local file="$1"
+
+    [[ "$(wc -l "$file" | cut -f 1 -d ' ')" == 0 ]]
 }
 
 #### Helpers
@@ -801,9 +810,98 @@ add_modules() {
     update_modules add_weak_links $no_force_update
 }
 
+# do_make_groups:
+# Takes tmp file which contains preprocessed modules.dep
+# output (or modules.dep)
+# reads modules.dep format information from stdin
+# produces groups associative array
+# the group is a maximum subset of modules having at least a link
+do_make_groups()
+{
+    local tmp="$1"
+    local group_name
+    local mod
+    declare -a mods
+
+    while read i; do
+        mods=($i)
+
+        # if the module already met, then its dependencies already counted
+        module_group="${grouped_modules[${mods[0]}]}"
+        [[ -n $module_group ]] && continue
+
+        # new group
+        group_name="${mods[0]}"
+
+        for mod in "${mods[@]}"; do
+            # if there is already such group,
+            # it is a subset of the one being created
+            # due to depmod output
+            unset groups[$mod]
+
+            # extra space doesn't matter, since later (in add_kernel())
+            # it is expanded without quotes
+            groups[$group_name]+=" $mod"
+            grouped_modules[$mod]=$group_name
+        done
+    done < $tmp # avoid subshell
+}
+
+# filter_depmod_deps:
+# preprocess output for make_groups
+# depmod -n produces also aliases, so it cuts them off
+# also it removes colon after the first module
+filter_depmod_deps()
+{
+    awk 'BEGIN { pr = 1 } /^#/{ pr = 0 } pr == 1 {sub(":",""); print $0}'
+}
+
+# make_abs_path:
+# Takes kernel version
+# makes full path from the relative module path
+# (produced by depmod for in-kernel-dir modules)
+make_abs_path()
+{
+    local kver="$1"
+    local mod
+    declare -a mods
+
+    while read i; do
+        mods=($i)
+        for j in "${!mods[@]}"; do
+            mod="${mods[$j]}"
+            [[ ${mod:0:1} == "/" ]] || mod="/lib/modules/$kver/$mod"
+            mods[$j]="$mod"
+        done
+        echo "${mods[@]}"
+    done
+}
+
+# make_groups:
+# takes krel and a file with the list of modules,
+# prepares and feeds to do_make_groups
+# to create the module groups (global)
+make_groups()
+{
+    local krel="$1"
+    local tmp1="$2"
+    local tmp2=$(mktemp -p $tmpdir)
+
+    groups=()
+    grouped_modules=()
+
+    $depmod -n $krel $(cat $tmp1) 2>/dev/null |
+        filter_depmod_deps | make_abs_path $krel > $tmp2
+
+    do_make_groups $tmp2
+
+    rm -f $tmp2
+}
+
 add_kernel() {
     local krel=${1:-$(uname -r)}
     local tmp
+    local no_force_update=""
 
     tmp=$(mktemp -p $tmpdir)
 
@@ -815,14 +913,22 @@ add_kernel() {
 
     for k in $(find_kernels_with_extra | rpmsort); do
         [[ "$krel" == "$k" ]] && continue
-        find_modules $k extra >> $tmp
+        find_modules $k extra > $tmp
+
+        is_empty_file "$tmp" || make_groups $krel $tmp
+
+        # reuse tmp
+
+        for g in "${groups[@]}"; do
+            printf '%s\n' $g > $tmp
+            # to avoid subshell, see the read_modules_list comment
+            read_modules_list < $tmp
+            update_modules_for_krel $krel add_weak_links $no_force_update
+        done
     done
 
-    # to avoid subshell, see the read_modules_list comment
-    read_modules_list < $tmp
     rm -f $tmp
 
-    update_modules_for_krel $krel add_weak_links force_update
 }
 
 remove_kernel() {
