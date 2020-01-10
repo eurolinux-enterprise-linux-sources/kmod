@@ -162,7 +162,7 @@ decompress_initramfs() {
 # initramfs. The current directory must be the root of the uncompressed
 # initramfs. The unsorted list of files is output to stdout.
 list_module_files() {
-    find . -iname \*.ko 2>/dev/null
+    find . -iname \*.ko -o -iname '*.ko.xz' -o -iname '*.ko.gz' 2>/dev/null
     find etc/modprobe.d usr/lib/modprobe.d -name \*.conf 2>/dev/null
 }
 
@@ -280,8 +280,11 @@ EOF
 module_has_changed() {
 
     declare module=$1 krel=$2
+    declare orig_module=$module
 
     module=${module%.ko}
+    [[ $module == $orig_module ]] && module=${module%.ko.xz}
+    [[ $module == $orig_module ]] && module=${module%.ko.gz}
     module=${module##*/}
 
     eval "changed_modules_${krel//[^a-zA-Z0-9]/_}=$krel"
@@ -378,7 +381,9 @@ find_modules() {
     local dirs="$*"
 
     for dir in $dirs; do
-        find $BASEDIR/lib/modules/$krel/$dir -name '*.ko' 2>/dev/null
+        find $BASEDIR/lib/modules/$krel/$dir \
+             -name '*.ko' -o -name '*.ko.xz' -o -name '*.ko.gz' \
+             2>/dev/null
     done
 }
 
@@ -389,7 +394,8 @@ find_modules_dirs() {
     local dirs="$*"
 
     for dir in $dirs; do
-        find $dir -name '*.ko' 2>/dev/null
+        find $dir -name '*.ko' -o -name '*.ko.xz' -o -name '*.ko.gz' \
+             2>/dev/null
     done
 }
 
@@ -426,18 +432,16 @@ remove_weak_link_quiet() {
           rmdir --parents --ignore-fail-on-non-empty "$(dirname "${subpath#/}")" 2>/dev/null )
 }
 
-# prepare_for_dry_run:
+# prepare_sandbox:
 # Takes kernel release, creates temporary weak-modules directory for it
 # and depmod config to operate on it.
 # Sets the global state accordingly
 
-prepare_for_dry_run() {
+prepare_sandbox() {
     local krel="$1"
     local orig_dir
     local dir
     local conf="$tmpdir/depmod.conf"
-
-    [[ -z "$dry_run" ]] && return
 
     #directory
     orig_dir=$(weak_updates_dir $krel)
@@ -445,7 +449,7 @@ prepare_for_dry_run() {
 
     mkdir -p "$dir"
     # the orig_dir can be empty
-    cp -R "$orig_dir/*" "$dir" 2>/dev/null
+    cp -R "$orig_dir"/* "$dir" 2>/dev/null
 
     weak_updates_dir_override="$dir"
 
@@ -457,11 +461,25 @@ prepare_for_dry_run() {
 }
 
 
-# finish_dry_run:
-# restore global state after dry_run changes
-finish_dry_run() {
+# finish_sandbox:
+# restore global state after sandboxing
+# copy configuration to the kernel directory if not dry run
+finish_sandbox() {
+    local krel="$1"
+    local override="$weak_updates_dir_override"
+    local wa_dir
+
     weak_updates_dir_override=""
     depmod="$depmod_orig"
+
+    [[ -n "$dry_run" ]] && return
+
+    wa_dir="$(weak_updates_dir $krel)"
+
+    rm -rf "$wa_dir"
+    mkdir -p "$wa_dir"
+
+    cp -R "${override}"/* "$wa_dir" 2>/dev/null
 }
 
 
@@ -482,30 +500,23 @@ finish_dry_run() {
 update_modules_for_krel() {
     local krel="$1"
     local func="$2"
-    local do_fallback="$3"
+    local force_update="$3"
 
     [[ -r "$BASEDIR/boot/symvers-$krel.gz" ]] || return
 
-    prepare_for_dry_run $krel
+    prepare_sandbox $krel
 
     global_link_state_save $krel
+
     $func $krel
-    if ! validate_weak_links $krel && [[ -n "$do_fallback" ]]; then
+
+    if ! validate_weak_links $krel && [[ -z "$force_update" ]]; then
         global_link_state_restore $krel
-
-        finish_dry_run
-
-        return;
     fi
 
     global_link_state_announce_changes $krel
 
-    if [[ -n "$dry_run" ]]; then
-        pr_verbose "Dry run: restoring configuration"
-        global_link_state_restore $krel
-    fi
-
-    finish_dry_run
+    finish_sandbox $krel
 }
 
 # update_modules:
@@ -516,14 +527,14 @@ update_modules_for_krel() {
 # Triggers initrd rebuild for the kernels, which modules are installed.
 update_modules() {
     local func="$1"
-    local do_fallback="$2"
+    local force_update="$2"
     local module_krel
 
     read_modules_list || exit 1
     [[ ${#modules[@]} -gt 0 ]] || return
 
     for krel in $(find_installed_kernels); do
-        update_modules_for_krel $krel $func $do_fallback
+        update_modules_for_krel $krel $func $force_update
     done
 
     for module in "${modules[@]}"; do
@@ -778,22 +789,21 @@ global_link_state_announce_changes() {
 # to the current requirements RPM will track existing of only one version
 # of extra/ module (no same extra/ modules for different kernels).
 remove_modules() {
-    local no_fallback=""
-
-    update_modules remove_weak_links $no_fallback
+    update_modules remove_weak_links force_update
 }
 
 # add_modules:
 # Read in a list of modules from stdinput and process them for compatibility
 # with installed kernels under /lib/modules.
 add_modules() {
-    update_modules add_weak_links do_fallback
+    no_force_update=""
+
+    update_modules add_weak_links $no_force_update
 }
 
 add_kernel() {
     local krel=${1:-$(uname -r)}
     local tmp
-    local no_fallback=""
 
     tmp=$(mktemp -p $tmpdir)
 
@@ -812,7 +822,7 @@ add_kernel() {
     read_modules_list < $tmp
     rm -f $tmp
 
-    update_modules_for_krel $krel add_weak_links $no_fallback
+    update_modules_for_krel $krel add_weak_links force_update
 }
 
 remove_kernel() {

@@ -1,6 +1,6 @@
 Name:		kmod
 Version:	20
-Release:	21%{?dist}
+Release:	23%{?dist}
 Summary:	Linux kernel module management utilities
 
 Group:		System Environment/Kernel
@@ -138,6 +138,15 @@ install -m 0644 %{SOURCE2} $RPM_BUILD_ROOT%{_sysconfdir}/depmod.d/dist.conf
 %{_libdir}/libkmod.so
 
 %changelog
+* Tue Aug 28 2018 Yauheni Kaliuta <ykaliuta@redhat.com> - 20-23
+- weak-modules: fix initial state creation for dry-run
+- weak-modules: check compatibility in a temporary directory
+  Resolves: rhbz#1619889.
+
+* Thu Jun 21 2018 Yauheni Kaliuta <ykaliuta@redhat.com> - 20-22
+- weak-modules: add compressed modules support.
+  Resolves: rhbz#1593448
+
 * Fri Dec  8 2017 Yauheni Kaliuta <ykaliuta@redhat.com> - 20-21
 - depmod: module_is_higher_priority: fix modname length calculation.
   Resolves: rhbz#1522994
