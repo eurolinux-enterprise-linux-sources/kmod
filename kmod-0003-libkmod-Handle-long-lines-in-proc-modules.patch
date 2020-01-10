@@ -1,0 +1,89 @@
+From 22dadafa9fa961fa70cc616679b8b24689382348 Mon Sep 17 00:00:00 2001
+From: Tony Camuso <tcamuso@redhat.com>
+Date: Fri, 24 Jun 2016 12:38:52 -0400
+Subject: [RHEL-7.3 PATCH 3/3] libkmod: Handle long lines in /proc/modules
+
+Cherry-picked without conflicts from the following upstream commit.
+
+commit 2206d7f763a1c9cf88f77d0ab19e410d17749361
+Author: Michal Marek <mmarek@suse.cz>
+Date:   Fri Jun 17 16:04:15 2016 +0200
+
+    libkmod: Handle long lines in /proc/modules
+
+    kmod_module_new_from_loaded() calls fgets with a 4k buffer. When a
+    module such as usbcore is used by too many modules, the rest of the line
+    is considered a beginning of another lines and we eventually get errors
+    like these from lsmod:
+
+    libkmod: kmod_module_get_holders: could not open '/sys/module/100,/holders': No such file or directory
+
+    together with bogus entries in the output. In kmod_module_get_size, the
+    problem does not affect functionality, but the line numbers in error
+    messages will be wrong.
+
+    Signed-off-by: Michal Marek <mmarek@suse.com>
+
+Signed-off-by: Tony Camuso <tcamuso@redhat.com>
+---
+ libkmod/libkmod-module.c | 12 ++++++++++--
+ 1 file changed, 10 insertions(+), 2 deletions(-)
+
+diff --git a/libkmod/libkmod-module.c b/libkmod/libkmod-module.c
+index 366308f..47bb880 100644
+--- a/libkmod/libkmod-module.c
++++ b/libkmod/libkmod-module.c
+@@ -1660,13 +1660,14 @@ KMOD_EXPORT int kmod_module_new_from_loaded(struct kmod_ctx *ctx,
+ 		struct kmod_module *m;
+ 		struct kmod_list *node;
+ 		int err;
++		size_t len = strlen(line);
+ 		char *saveptr, *name = strtok_r(line, " \t", &saveptr);
+ 
+ 		err = kmod_module_new_from_name(ctx, name, &m);
+ 		if (err < 0) {
+ 			ERR(ctx, "could not get module from name '%s': %s\n",
+ 				name, strerror(-err));
+-			continue;
++			goto eat_line;
+ 		}
+ 
+ 		node = kmod_list_append(l, m);
+@@ -1676,6 +1677,9 @@ KMOD_EXPORT int kmod_module_new_from_loaded(struct kmod_ctx *ctx,
+ 			ERR(ctx, "out of memory\n");
+ 			kmod_module_unref(m);
+ 		}
++eat_line:
++		while (line[len - 1] != '\n' && fgets(line, sizeof(line), fp))
++			len = strlen(line);
+ 	}
+ 
+ 	fclose(fp);
+@@ -1825,12 +1829,13 @@ KMOD_EXPORT long kmod_module_get_size(const struct kmod_module *mod)
+ 	}
+ 
+ 	while (fgets(line, sizeof(line), fp)) {
++		size_t len = strlen(line);
+ 		char *saveptr, *endptr, *tok = strtok_r(line, " \t", &saveptr);
+ 		long value;
+ 
+ 		lineno++;
+ 		if (tok == NULL || !streq(tok, mod->name))
+-			continue;
++			goto eat_line;
+ 
+ 		tok = strtok_r(NULL, " \t", &saveptr);
+ 		if (tok == NULL) {
+@@ -1848,6 +1853,9 @@ KMOD_EXPORT long kmod_module_get_size(const struct kmod_module *mod)
+ 
+ 		size = value;
+ 		break;
++eat_line:
++		while (line[len - 1] != '\n' && fgets(line, sizeof(line), fp))
++			len = strlen(line);
+ 	}
+ 	fclose(fp);
+ 
+-- 
+1.8.3.1
+

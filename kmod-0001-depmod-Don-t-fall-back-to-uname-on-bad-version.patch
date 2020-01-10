@@ -1,0 +1,43 @@
+From 1f5010924500a4fd83047584d1fbdba5517dffa2 Mon Sep 17 00:00:00 2001
+From: Tony Camuso <tcamuso@redhat.com>
+Date: Fri, 24 Jun 2016 12:37:48 -0400
+Subject: [RHEL-7.3 PATCH 1/3] depmod: Don't fall back to uname on bad version
+
+Cherry-picked without conflicts from the following upstream commit.
+
+commit f3f62f5ec3b23823b2ce02e37bc707dc85c56461
+Author: Laura Abbott <labbott@fedoraproject.org>
+Date:   Mon Sep 28 15:39:14 2015 -0700
+
+    depmod: Don't fall back to uname on bad version
+
+    Currently, if a value that doesn't match a kernel version
+    ("%u.%u") is passed in, depmod silently falls back to
+    using uname. Rather than try and work around the caller passing
+    bad data, just exit out instead.
+
+Signed-off-by: Tony Camuso <tcamuso@redhat.com>
+---
+ tools/depmod.c | 6 +++++-
+ 1 file changed, 5 insertions(+), 1 deletion(-)
+
+diff --git a/tools/depmod.c b/tools/depmod.c
+index 231b9ab..8d5c671 100644
+--- a/tools/depmod.c
++++ b/tools/depmod.c
+@@ -2475,7 +2475,11 @@ static int do_depmod(int argc, char *argv[])
+ 		}
+ 	}
+ 
+-	if (optind < argc && is_version_number(argv[optind])) {
++	if (optind < argc) {
++		if (!is_version_number(argv[optind])) {
++			ERR("Bad version passed %s\n", argv[optind]);
++			goto cmdline_failed;
++		}
+ 		cfg.kversion = argv[optind];
+ 		optind++;
+ 	} else {
+-- 
+1.8.3.1
+

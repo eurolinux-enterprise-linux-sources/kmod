@@ -1,0 +1,920 @@
+From e91ce48303e37b92f123a91acfa9cbda17035d7c Mon Sep 17 00:00:00 2001
+From: Yauheni Kaliuta <yauheni.kaliuta@redhat.com>
+Date: Thu, 17 Aug 2017 15:09:06 +0300
+Subject: [PATCH] depmod: backport external directories support
+
+Requires to backport scratchbuf implementation
+
+Squashed commit of the following:
+
+commit 92ab2321a4b761eb2822d77dc235dd543b021c69
+Author: Yauheni Kaliuta <yauheni.kaliuta@redhat.com>
+Date:   Thu Jul 20 17:09:52 2017 +0300
+
+    man/depmod.d: add external keyword description
+
+    The commit 'depmod: implement external directories support' added
+    external directories support (see
+    7da6884e7357ac05772e90f6d7e63b1948103fc4).
+
+    This patch documents the extention in the manpage.
+
+    Signed-off-by: Yauheni Kaliuta <yauheni.kaliuta@redhat.com>
+
+commit 01673c9b8dbe580634604808f831b735aa7fe298
+Author: Yauheni Kaliuta <yauheni.kaliuta@redhat.com>
+Date:   Tue May 9 22:09:23 2017 +0300
+
+    depmod: implement external directories support
+
+    The idea is to add a configuration keyword, external, which
+    will list directories for scanning for particular kernel version
+    mask:
+
+    external 4.10 /the/modules/dir /second/modules/dir
+
+    And extend "search" keyword to set it's priority with pseudo dir
+    "external" (as it's done for built-in):
+
+    search subdir external subdir2 built-in subdir3
+
+    (actually, the version is the same as for override keyword: * or
+    posix regexp, so example above is a bit incorrect).
+
+    All other logic left the same: if there are duplicates, only one
+    is under consideration and it is unloadable if it is bad.
+
+    The resulting modules.dep will contain entries a-la:
+
+    /the/modules/dir/module1.ko:
+    kernel/module2.ko: /the/modules/dir/module1.ko
+
+    (here /lib/modules/$(uname -r)/kernel/module2.ko depends of
+    symbols, provided by /the/modules/dir/module1.ko and external has
+    higher priority).
+
+    modprobe and modinfo understand it out of box.
+
+    This is a pretty simple extention of existing logic, since now
+    depmod already is able to:
+
+    a) scan modules with full path from command line without -a
+    switch;
+    b) detects broken symbol dependencies and broken modversions,
+    what assumes, that modules are already are not built for the
+    existing kernel.
+
+    Signed-off-by: Yauheni Kaliuta <yauheni.kaliuta@redhat.com>
+
+commit 5274ad44377ad5998b9f4b3c5c180d407ed68fb9
+Author: Yauheni Kaliuta <yauheni.kaliuta@redhat.com>
+Date:   Tue May 9 22:09:22 2017 +0300
+
+    depmod: rewrite depmod modules search with scratchbuf
+
+    The recursive search code used used pretty big, PATH_MAX,
+    automatic storage buffer for the module directory scanning. Some
+    time ago there was scratchbuf implemented, which dynamically
+    reallocates its buffer on demand. The patch takes it in use for
+    the scanning code also. The initial size is hardcoded to 256
+    bytes which sounds good enough for most usecases so there should
+    be not many reallocations.
+
+    (add #include <shared/scratchbuf.h> which in upstream
+    comes from 3b4c684c125d depmod: fix string overflow)
+
+    Signed-off-by: Yauheni Kaliuta <yauheni.kaliuta@redhat.com>
+
+commit 88f47f04df80dd80065d2811f3a7bae25dd98a79
+Author: Yauheni Kaliuta <yauheni.kaliuta@redhat.com>
+Date:   Tue May 9 22:09:21 2017 +0300
+
+    depmod: create depmod dir independent search function
+
+    Prepare to implement external directories support.
+
+    The patch splits depmod_modules_search() function to two
+    functions: depmod_modules_search(), called by the high level with
+    intention to search all possible modules, and
+    depmod_module_search_path(), which takes path as a parameter and
+    scans modules under the path only. Initially it is used to scan
+    the same depmod->cfg->dirname path only.
+
+    Signed-off-by: Yauheni Kaliuta <yauheni.kaliuta@redhat.com>
+
+commit 6488110e07ad49a0dc4da7bbf79dd00a50bd9cc5
+Author: Yauheni Kaliuta <yauheni.kaliuta@redhat.com>
+Date:   Wed Nov 23 17:23:38 2016 +0200
+
+    depmod: search key: move builtin detection under the add function
+
+    Prepare to implement external directories support.
+
+    It's better to isolate behaviour difference under the
+    cfg_search_add() call, then make the client code aware of it.
+
+    In case of external modules/directories support, there will be
+    one more keyword added, so making the clients aware of it makes
+    even less sense.
+
+    Signed-off-by: Yauheni Kaliuta <yauheni.kaliuta@redhat.com>
+
+commit 183465f82e0157b7facba9e100d0e822163ca951
+Author: Yauheni Kaliuta <yauheni.kaliuta@redhat.com>
+Date:   Wed Nov 9 08:52:26 2016 +0200
+
+    shared: make scratchbuf_str static
+
+    It fixes linking problem
+
+    tools/depmod.o: In function `output_symbols_bin':
+    depmod.c:(.text.output_symbols_bin+0x135): undefined reference to `scratchbuf_str'
+
+    for -O0 build, where gcc doesn't actually inline it.
+
+    Signed-off-by: Yauheni Kaliuta <yauheni.kaliuta@redhat.com>
+
+commit 4d202380a16b273a641b3c9e85a6d80d9f367c68
+Author: Lucas De Marchi <lucas.demarchi@intel.com>
+Date:   Wed Aug 10 14:51:57 2016 -0300
+
+    testsuite: include stdio.h
+
+    It's used in the log macros so include it.
+
+commit c226d66c43c7550247c76e7285aeb338dce2ea34
+Author: Lucas De Marchi <lucas.demarchi@intel.com>
+Date:   Wed Aug 10 14:20:32 2016 -0300
+
+    Add scratchbuf implementation
+
+    This should fill the requirements for "we need to loop over a lot of
+    strings that usually are small enough to remain on stack, but we want to
+    protect ourselves against huge strings not fitting in the static
+    buffer we estimated as sufficient"
+
+Signed-off-by: Yauheni Kaliuta <yauheni.kaliuta@redhat.com>
+---
+ Makefile.am                 |   5 +
+ man/depmod.d.xml            |  20 ++++
+ shared/scratchbuf.c         |  60 +++++++++++
+ shared/scratchbuf.h         |  31 ++++++
+ testsuite/.gitignore        |   3 +
+ testsuite/test-scratchbuf.c |  89 +++++++++++++++++
+ testsuite/testsuite.h       |   1 +
+ tools/depmod.c              | 239 ++++++++++++++++++++++++++++++++++++--------
+ 8 files changed, 404 insertions(+), 44 deletions(-)
+ create mode 100644 shared/scratchbuf.c
+ create mode 100644 shared/scratchbuf.h
+ create mode 100644 testsuite/test-scratchbuf.c
+
+diff --git a/Makefile.am b/Makefile.am
+index 896ae6366f45..407efe3f93c2 100644
+--- a/Makefile.am
++++ b/Makefile.am
+@@ -51,6 +51,7 @@ shared_libshared_la_SOURCES = \
+ 	shared/array.h \
+ 	shared/hash.c \
+ 	shared/hash.h \
++	shared/scratchbuf.c \
+ 	shared/strbuf.c \
+ 	shared/strbuf.h \
+ 	shared/util.c \
+@@ -307,6 +308,7 @@ testsuite_libtestsuite_la_LIBADD = -lrt
+ TESTSUITE = \
+ 	testsuite/test-hash \
+ 	testsuite/test-array \
++	testsuite/test-scratchbuf \
+ 	testsuite/test-strbuf \
+ 	testsuite/test-init \
+ 	testsuite/test-initstate \
+@@ -329,6 +331,9 @@ testsuite_test_hash_CPPFLAGS = $(TESTSUITE_CPPFLAGS)
+ testsuite_test_array_LDADD = $(TESTSUITE_LDADD)
+ testsuite_test_array_CPPFLAGS = $(TESTSUITE_CPPFLAGS)
+ 
++testsuite_test_scratchbuf_LDADD = $(TESTSUITE_LDADD)
++testsuite_test_scratchbuf_CPPFLAGS = $(TESTSUITE_CPPFLAGS)
++
+ testsuite_test_strbuf_LDADD = $(TESTSUITE_LDADD)
+ testsuite_test_strbuf_CPPFLAGS = $(TESTSUITE_CPPFLAGS)
+ 
+diff --git a/man/depmod.d.xml b/man/depmod.d.xml
+index c30c06c5b605..4341a568e8a0 100644
+--- a/man/depmod.d.xml
++++ b/man/depmod.d.xml
+@@ -75,6 +75,9 @@
+             first listed directory and the lowest priority given to the last
+             directory listed. The special keyword <command>built-in</command> 
+             refers to the standard module directories installed by the kernel.
++            Another special keyword <command>external</command> refers to the
++            list of external directories, defined by the
++            <command>external</command> command.
+           </para>
+           <para>
+             By default, depmod will give a higher priority to 
+@@ -110,6 +113,23 @@
+           </para>
+         </listitem>
+       </varlistentry>
++      <varlistentry>
++        <term>external <replaceable>kernelversion</replaceable>
++        <replaceable>absolutemodulesdirectory...</replaceable>
++        </term>
++        <listitem>
++          <para>
++            This specifies a list of directories, which will be checked
++            according to the priorities in the <command>search</command>
++            command. The order matters also, the first directory has the higher
++            priority.
++          </para>
++          <para>
++            The <replaceable>kernelversion</replaceable> is a POSIX regular
++            expression or * wildcard, like in the <command>override</command>.
++          </para>
++        </listitem>
++      </varlistentry>
+     </variablelist>
+   </refsect1>
+ 
+diff --git a/shared/scratchbuf.c b/shared/scratchbuf.c
+new file mode 100644
+index 000000000000..8d9eb83f30c1
+--- /dev/null
++++ b/shared/scratchbuf.c
+@@ -0,0 +1,60 @@
++/*
++ * kmod - interface to kernel module operations
++ *
++ * Copyright (C) 2016  Intel Corporation. All rights reserved.
++ *
++ * This library is free software; you can redistribute it and/or
++ * modify it under the terms of the GNU Lesser General Public
++ * License as published by the Free Software Foundation; either
++ * version 2.1 of the License, or (at your option) any later version.
++ *
++ * This library is distributed in the hope that it will be useful,
++ * but WITHOUT ANY WARRANTY; without even the implied warranty of
++ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
++ * Lesser General Public License for more details.
++ *
++ * You should have received a copy of the GNU Lesser General Public
++ * License along with this library; if not, see <http://www.gnu.org/licenses/>.
++ */
++#include "scratchbuf.h"
++
++#include <errno.h>
++#include <string.h>
++
++void scratchbuf_init(struct scratchbuf *buf, char *stackbuf, size_t size)
++{
++	buf->bytes = stackbuf;
++	buf->size = size;
++	buf->need_free = false;
++}
++
++int scratchbuf_alloc(struct scratchbuf *buf, size_t size)
++{
++	char *tmp;
++
++	if (size <= buf->size)
++		return 0;
++
++	if (buf->need_free) {
++		tmp = realloc(buf->bytes, size);
++		if (tmp == NULL)
++			return -ENOMEM;
++	} else {
++		tmp = malloc(size);
++		if (tmp == NULL)
++			return -ENOMEM;
++		memcpy(tmp, buf->bytes, buf->size);
++	}
++
++	buf->size = size;
++	buf->bytes = tmp;
++	buf->need_free = true;
++
++	return 0;
++}
++
++void scratchbuf_release(struct scratchbuf *buf)
++{
++	if (buf->need_free)
++		free(buf->bytes);
++}
+diff --git a/shared/scratchbuf.h b/shared/scratchbuf.h
+new file mode 100644
+index 000000000000..27ea9d9f6008
+--- /dev/null
++++ b/shared/scratchbuf.h
+@@ -0,0 +1,31 @@
++#pragma once
++
++#include <stdbool.h>
++#include <stdlib.h>
++
++#include <shared/macro.h>
++
++/*
++ * Buffer abstract data type
++ */
++struct scratchbuf {
++	char *bytes;
++	size_t size;
++	bool need_free;
++};
++
++void scratchbuf_init(struct scratchbuf *buf, char *stackbuf, size_t size);
++int scratchbuf_alloc(struct scratchbuf *buf, size_t sz);
++void scratchbuf_release(struct scratchbuf *buf);
++
++/* Return a C string */
++static inline char *scratchbuf_str(struct scratchbuf *buf)
++{
++	return buf->bytes;
++}
++
++#define SCRATCHBUF_INITIALIZER(buf_) {			\
++	.bytes = buf_,					\
++	.size = sizeof(buf_) + _array_size_chk(buf_),	\
++	.need_free = false,				\
++}
+diff --git a/testsuite/test-scratchbuf.c b/testsuite/test-scratchbuf.c
+new file mode 100644
+index 000000000000..6d86957cefb8
+--- /dev/null
++++ b/testsuite/test-scratchbuf.c
+@@ -0,0 +1,89 @@
++/*
++ * Copyright (C)  2016 Intel Corporation. All rights reserved.
++ *
++ * This program is free software; you can redistribute it and/or
++ * modify it under the terms of the GNU Lesser General Public
++ * License as published by the Free Software Foundation; either
++ * version 2.1 of the License, or (at your option) any later version.
++ *
++ * This program is distributed in the hope that it will be useful,
++ * but WITHOUT ANY WARRANTY; without even the implied warranty of
++ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
++ * Lesser General Public License for more details.
++ *
++ * You should have received a copy of the GNU Lesser General Public
++ * License along with this library; if not, see <http://www.gnu.org/licenses/>.
++ */
++
++#include <errno.h>
++#include <string.h>
++#include <unistd.h>
++
++#include <shared/scratchbuf.h>
++
++#include "testsuite.h"
++
++static int test_scratchbuf_onlystack(const struct test *t)
++{
++	struct scratchbuf sbuf;
++	const char *smallstr = "xyz";
++	char buf[3 + 2];
++	char buf2[3 + 1];
++
++	scratchbuf_init(&sbuf, buf, sizeof(buf));
++	assert_return(scratchbuf_alloc(&sbuf, strlen(smallstr) + 1) == 0, EXIT_FAILURE);
++	assert_return(sbuf.need_free == false, EXIT_FAILURE);
++	scratchbuf_release(&sbuf);
++
++	scratchbuf_init(&sbuf, buf2, sizeof(buf2));
++	assert_return(scratchbuf_alloc(&sbuf, strlen(smallstr) + 1) == 0, EXIT_FAILURE);
++	assert_return(sbuf.need_free == false, EXIT_FAILURE);
++	scratchbuf_release(&sbuf);
++
++	memcpy(scratchbuf_str(&sbuf), smallstr, strlen(smallstr) + 1);
++	assert_return(strcmp(scratchbuf_str(&sbuf), smallstr) == 0, EXIT_FAILURE);
++
++	return 0;
++}
++DEFINE_TEST(test_scratchbuf_onlystack,
++		.description = "test scratchbuf for buffer on stack only");
++
++
++static int test_scratchbuf_heap(const struct test *t)
++{
++	struct scratchbuf sbuf;
++	const char *smallstr = "xyz";
++	const char *largestr = "xyzxyzxyz";
++	const char *largestr2 = "xyzxyzxyzxyzxyz";
++	char buf[3 + 1];
++
++	scratchbuf_init(&sbuf, buf, sizeof(buf));
++
++	/* Initially only on stack */
++	assert_return(scratchbuf_alloc(&sbuf, strlen(smallstr) + 1) == 0, EXIT_FAILURE);
++	assert_return(sbuf.need_free == false, EXIT_FAILURE);
++	memcpy(scratchbuf_str(&sbuf), smallstr, strlen(smallstr) + 1);
++
++	/* Grow once to heap */
++	assert_return(scratchbuf_alloc(&sbuf, strlen(largestr) + 1) == 0, EXIT_FAILURE);
++	assert_return(sbuf.need_free == true, EXIT_FAILURE);
++	assert_return(sbuf.size == strlen(largestr) + 1, EXIT_FAILURE);
++	assert_return(strcmp(scratchbuf_str(&sbuf), smallstr) == 0, EXIT_FAILURE);
++	memcpy(scratchbuf_str(&sbuf), largestr, strlen(largestr) + 1);
++	assert_return(strcmp(scratchbuf_str(&sbuf), largestr) == 0, EXIT_FAILURE);
++
++	/* Grow again - realloc should take place */
++	assert_return(scratchbuf_alloc(&sbuf, strlen(largestr2) + 1) == 0, EXIT_FAILURE);
++	assert_return(sbuf.need_free == true, EXIT_FAILURE);
++	assert_return(sbuf.size == strlen(largestr2) + 1, EXIT_FAILURE);
++	memcpy(scratchbuf_str(&sbuf), largestr2, strlen(largestr2) + 1);
++	assert_return(strcmp(scratchbuf_str(&sbuf), largestr2) == 0, EXIT_FAILURE);
++
++	scratchbuf_release(&sbuf);
++
++	return 0;
++}
++DEFINE_TEST(test_scratchbuf_heap,
++		.description = "test scratchbuf for buffer on that grows to heap");
++
++TESTSUITE_MAIN();
+diff --git a/testsuite/testsuite.h b/testsuite/testsuite.h
+index 3bd74f34ca7e..bb0eb507ac2f 100644
+--- a/testsuite/testsuite.h
++++ b/testsuite/testsuite.h
+@@ -19,6 +19,7 @@
+ 
+ #include <stdbool.h>
+ #include <stdarg.h>
++#include <stdio.h>
+ 
+ #include <shared/macro.h>
+ 
+diff --git a/tools/depmod.c b/tools/depmod.c
+index 7b9583249018..79fd14354266 100644
+--- a/tools/depmod.c
++++ b/tools/depmod.c
+@@ -35,6 +35,7 @@
+ #include <shared/hash.h>
+ #include <shared/macro.h>
+ #include <shared/util.h>
++#include <shared/scratchbuf.h>
+ 
+ #include <libkmod/libkmod.h>
+ 
+@@ -44,6 +45,7 @@
+ static int verbose = DEFAULT_VERBOSE;
+ 
+ static const char CFG_BUILTIN_KEY[] = "built-in";
++static const char CFG_EXTERNAL_KEY[] = "external";
+ static const char *default_cfg_paths[] = {
+ 	"/run/depmod.d",
+ 	SYSCONFDIR "/depmod.d",
+@@ -432,9 +434,21 @@ struct cfg_override {
+ 	char path[];
+ };
+ 
++enum search_type {
++	SEARCH_PATH,
++	SEARCH_BUILTIN,
++	SEARCH_EXTERNAL
++};
++
+ struct cfg_search {
+ 	struct cfg_search *next;
+-	uint8_t builtin;
++	enum search_type type;
++	size_t len;
++	char path[];
++};
++
++struct cfg_external {
++	struct cfg_external *next;
+ 	size_t len;
+ 	char path[];
+ };
+@@ -449,14 +463,27 @@ struct cfg {
+ 	uint8_t warn_dups;
+ 	struct cfg_override *overrides;
+ 	struct cfg_search *searches;
++	struct cfg_external *externals;
+ };
+ 
+-static int cfg_search_add(struct cfg *cfg, const char *path, uint8_t builtin)
++static enum search_type cfg_define_search_type(const char *path)
++{
++	if (streq(path, CFG_BUILTIN_KEY))
++		return SEARCH_BUILTIN;
++	if (streq(path, CFG_EXTERNAL_KEY))
++		return SEARCH_EXTERNAL;
++	return SEARCH_PATH;
++}
++
++static int cfg_search_add(struct cfg *cfg, const char *path)
+ {
+ 	struct cfg_search *s;
+ 	size_t len;
++	enum search_type type;
+ 
+-	if (builtin)
++	type = cfg_define_search_type(path);
++
++	if (type != SEARCH_PATH)
+ 		len = 0;
+ 	else
+ 		len = strlen(path) + 1;
+@@ -466,15 +493,15 @@ static int cfg_search_add(struct cfg *cfg, const char *path, uint8_t builtin)
+ 		ERR("search add: out of memory\n");
+ 		return -ENOMEM;
+ 	}
+-	s->builtin = builtin;
+-	if (builtin)
++	s->type = type;
++	if (type != SEARCH_PATH)
+ 		s->len = 0;
+ 	else {
+ 		s->len = len - 1;
+ 		memcpy(s->path, path, len);
+ 	}
+ 
+-	DBG("search add: %s, builtin=%hhu\n", path, builtin);
++	DBG("search add: %s, search type=%hhu\n", path, type);
+ 
+ 	s->next = cfg->searches;
+ 	cfg->searches = s;
+@@ -522,6 +549,32 @@ static void cfg_override_free(struct cfg_override *o)
+ 	free(o);
+ }
+ 
++static int cfg_external_add(struct cfg *cfg, const char *path)
++{
++	struct cfg_external *ext;
++	size_t len = strlen(path);
++
++	ext = malloc(sizeof(struct cfg_external) + len + 1);
++	if (ext == NULL) {
++		ERR("external add: out of memory\n");
++		return -ENOMEM;
++	}
++
++	strcpy(ext->path, path);
++	ext->len = len;
++
++	DBG("external add: %s\n", ext->path);
++
++	ext->next = cfg->externals;
++	cfg->externals = ext;
++	return 0;
++}
++
++static void cfg_external_free(struct cfg_external *ext)
++{
++	free(ext);
++}
++
+ static int cfg_kernel_matches(const struct cfg *cfg, const char *pattern)
+ {
+ 	regex_t re;
+@@ -567,8 +620,7 @@ static int cfg_file_parse(struct cfg *cfg, const char *filename)
+ 		if (streq(cmd, "search")) {
+ 			const char *sp;
+ 			while ((sp = strtok_r(NULL, "\t ", &saveptr)) != NULL) {
+-				uint8_t builtin = streq(sp, CFG_BUILTIN_KEY);
+-				cfg_search_add(cfg, sp, builtin);
++				cfg_search_add(cfg, sp);
+ 			}
+ 		} else if (streq(cmd, "override")) {
+ 			const char *modname = strtok_r(NULL, "\t ", &saveptr);
+@@ -586,6 +638,20 @@ static int cfg_file_parse(struct cfg *cfg, const char *filename)
+ 			}
+ 
+ 			cfg_override_add(cfg, modname, subdir);
++		} else if (streq(cmd, "external")) {
++			const char *version = strtok_r(NULL, "\t ", &saveptr);
++			const char *dir = strtok_r(NULL, "\t ", &saveptr);
++
++			if (version == NULL || dir == NULL)
++				goto syntax_error;
++
++			if (!cfg_kernel_matches(cfg, version)) {
++				INF("%s:%u: external directory did not match %s\n",
++				    filename, linenum, version);
++				goto done_next;
++			}
++
++			cfg_external_add(cfg, dir);
+ 		} else if (streq(cmd, "include")
+ 				|| streq(cmd, "make_map_files")) {
+ 			INF("%s:%u: command %s not implemented yet\n",
+@@ -762,7 +828,7 @@ static int cfg_load(struct cfg *cfg, const char * const *cfg_paths)
+ 	 * list here. But only if there was no "search" option specified.
+ 	 */
+ 	if (cfg->searches == NULL)
+-		cfg_search_add(cfg, "updates", 0);
++		cfg_search_add(cfg, "updates");
+ 
+ 	return 0;
+ }
+@@ -780,6 +846,12 @@ static void cfg_free(struct cfg *cfg)
+ 		cfg->searches = cfg->searches->next;
+ 		cfg_search_free(tmp);
+ 	}
++
++	while (cfg->externals) {
++		struct cfg_external *tmp = cfg->externals;
++		cfg->externals = cfg->externals->next;
++		cfg_external_free(tmp);
++	}
+ }
+ 
+ 
+@@ -987,6 +1059,33 @@ static int depmod_module_del(struct depmod *depmod, struct mod *mod)
+ 	return 0;
+ }
+ 
++static const char *search_to_string(const struct cfg_search *s)
++{
++	switch(s->type) {
++	case SEARCH_EXTERNAL:
++		return "external";
++	case SEARCH_BUILTIN:
++		return "built-in";
++	default:
++		return s->path;
++	}
++}
++
++static bool depmod_is_path_starts_with(const char *path,
++				       size_t pathlen,
++				       const char *prefix,
++				       size_t prefix_len)
++{
++	if (pathlen <= prefix_len)
++		return false;
++	if (path[prefix_len] != '/')
++		return false;
++	if (memcmp(path, prefix, prefix_len) != 0)
++		return false;
++
++	return true;
++}
++
+ /* returns if existing module @mod is higher priority than newpath.
+  * note this is the inverse of module-init-tools is_higher_priority()
+  */
+@@ -995,6 +1094,7 @@ static int depmod_module_is_higher_priority(const struct depmod *depmod, const s
+ 	const struct cfg *cfg = depmod->cfg;
+ 	const struct cfg_override *ov;
+ 	const struct cfg_search *se;
++	const struct cfg_external *ext;
+ 
+ 	/* baselen includes the last '/' and mod->baselen doesn't. So it's
+ 	 * actually correct to use modnamelen in the first and modnamesz in
+@@ -1003,35 +1103,55 @@ static int depmod_module_is_higher_priority(const struct depmod *depmod, const s
+ 	size_t oldlen = mod->baselen + mod->modnamesz;
+ 	const char *oldpath = mod->path;
+ 	int i, bprio = -1, oldprio = -1, newprio = -1;
+-
+-	assert(strncmp(newpath, cfg->dirname, cfg->dirnamelen) == 0);
+-	assert(strncmp(oldpath, cfg->dirname, cfg->dirnamelen) == 0);
+-
+-	newpath += cfg->dirnamelen + 1;
+-	newlen -= cfg->dirnamelen + 1;
+-	oldpath += cfg->dirnamelen + 1;
+-	oldlen -= cfg->dirnamelen + 1;
++	size_t relnewlen = 0;
++	size_t reloldlen = 0;
++	const char *relnewpath = NULL;
++	const char *reloldpath = NULL;
+ 
+ 	DBG("comparing priorities of %s and %s\n",
+ 	    oldpath, newpath);
+ 
++	if (strncmp(newpath, cfg->dirname, cfg->dirnamelen) == 0) {
++		relnewpath = newpath + cfg->dirnamelen + 1;
++		relnewlen = newlen - cfg->dirnamelen + 1;
++	}
++	if (strncmp(oldpath, cfg->dirname, cfg->dirnamelen) == 0) {
++		reloldpath = oldpath + cfg->dirnamelen + 1;
++		reloldlen = oldlen - cfg->dirnamelen + 1;
++	}
++
+ 	for (ov = cfg->overrides; ov != NULL; ov = ov->next) {
+ 		DBG("override %s\n", ov->path);
+-		if (newlen == ov->len && memcmp(ov->path, newpath, newlen) == 0)
++		if (relnewlen == ov->len &&
++		    memcmp(ov->path, relnewpath, relnewlen) == 0)
+ 			return 0;
+-		if (oldlen == ov->len && memcmp(ov->path, oldpath, oldlen) == 0)
++		if (reloldlen == ov->len &&
++		    memcmp(ov->path, reloldpath, reloldlen) == 0)
+ 			return 1;
+ 	}
+ 
+ 	for (i = 0, se = cfg->searches; se != NULL; se = se->next, i++) {
+-		DBG("search %s\n", se->builtin ? "built-in" : se->path);
+-		if (se->builtin)
++		DBG("search %s\n", search_to_string(se));
++		if (se->type == SEARCH_BUILTIN)
+ 			bprio = i;
+-		else if (newlen > se->len && newpath[se->len] == '/' &&
+-			 memcmp(se->path, newpath, se->len) == 0)
++		else if (se->type == SEARCH_EXTERNAL) {
++			for (ext = cfg->externals; ext != NULL; ext = ext->next, i++) {
++				if (depmod_is_path_starts_with(newpath,
++							       newlen,
++							       ext->path,
++							       ext->len))
++					newprio = i;
++				if (depmod_is_path_starts_with(oldpath,
++							       oldlen,
++							       ext->path,
++							       ext->len))
++					oldprio = i;
++			}
++		} else if (relnewlen > se->len && relnewpath[se->len] == '/' &&
++			 memcmp(se->path, relnewpath, se->len) == 0)
+ 			newprio = i;
+-		else if (oldlen > se->len && oldpath[se->len] == '/' &&
+-			 memcmp(se->path, oldpath, se->len) == 0)
++		else if (reloldlen > se->len && reloldpath[se->len] == '/' &&
++			 memcmp(se->path, reloldpath, se->len) == 0)
+ 			oldprio = i;
+ 	}
+ 
+@@ -1102,10 +1222,11 @@ add:
+ 	return 0;
+ }
+ 
+-static int depmod_modules_search_dir(struct depmod *depmod, DIR *d, size_t baselen, char *path)
++static int depmod_modules_search_dir(struct depmod *depmod, DIR *d, size_t baselen, struct scratchbuf *s_path)
+ {
+ 	struct dirent *de;
+ 	int err = 0, dfd = dirfd(d);
++	char *path;
+ 
+ 	while ((de = readdir(d)) != NULL) {
+ 		const char *name = de->d_name;
+@@ -1118,11 +1239,13 @@ static int depmod_modules_search_dir(struct depmod *depmod, DIR *d, size_t basel
+ 		if (streq(name, "build") || streq(name, "source"))
+ 			continue;
+ 		namelen = strlen(name);
+-		if (baselen + namelen + 2 >= PATH_MAX) {
+-			path[baselen] = '\0';
+-			ERR("path is too long %s%s\n", path, name);
++		if (scratchbuf_alloc(s_path, baselen + namelen + 2) < 0) {
++			err = -ENOMEM;
++			ERR("No memory\n");
+ 			continue;
+ 		}
++
++		path = scratchbuf_str(s_path);
+ 		memcpy(path + baselen, name, namelen + 1);
+ 
+ 		if (de->d_type == DT_REG)
+@@ -1148,10 +1271,6 @@ static int depmod_modules_search_dir(struct depmod *depmod, DIR *d, size_t basel
+ 		if (is_dir) {
+ 			int fd;
+ 			DIR *subdir;
+-			if (baselen + namelen + 2 + NAME_MAX >= PATH_MAX) {
+-				ERR("directory path is too long %s\n", path);
+-				continue;
+-			}
+ 			fd = openat(dfd, name, O_RDONLY);
+ 			if (fd < 0) {
+ 				ERR("openat(%d, %s, O_RDONLY): %m\n",
+@@ -1168,7 +1287,7 @@ static int depmod_modules_search_dir(struct depmod *depmod, DIR *d, size_t basel
+ 			path[baselen + namelen + 1] = '\0';
+ 			err = depmod_modules_search_dir(depmod, subdir,
+ 							baselen + namelen + 1,
+-							path);
++							s_path);
+ 			closedir(subdir);
+ 		} else {
+ 			err = depmod_modules_search_file(depmod, baselen,
+@@ -1181,33 +1300,65 @@ static int depmod_modules_search_dir(struct depmod *depmod, DIR *d, size_t basel
+ 			err = 0; /* ignore errors */
+ 		}
+ 	}
+-
+ 	return err;
+ }
+ 
+-static int depmod_modules_search(struct depmod *depmod)
++static int depmod_modules_search_path(struct depmod *depmod,
++				      const char *path)
+ {
+-	char path[PATH_MAX];
+-	DIR *d = opendir(depmod->cfg->dirname);
++	char buf[256];
++	_cleanup_(scratchbuf_release) struct scratchbuf s_path_buf =
++		SCRATCHBUF_INITIALIZER(buf);
++	char *path_buf;
++	DIR *d;
+ 	size_t baselen;
+ 	int err;
++
++	d = opendir(path);
+ 	if (d == NULL) {
+ 		err = -errno;
+-		ERR("could not open directory %s: %m\n", depmod->cfg->dirname);
++		ERR("could not open directory %s: %m\n", path);
+ 		return err;
+ 	}
+ 
+-	baselen = depmod->cfg->dirnamelen;
+-	memcpy(path, depmod->cfg->dirname, baselen);
+-	path[baselen] = '/';
++	baselen = strlen(path);
++
++	if (scratchbuf_alloc(&s_path_buf, baselen + 2) < 0) {
++		err = -ENOMEM;
++		goto out;
++	}
++	path_buf = scratchbuf_str(&s_path_buf);
++
++	memcpy(path_buf, path, baselen);
++	path_buf[baselen] = '/';
+ 	baselen++;
+-	path[baselen] = '\0';
++	path_buf[baselen] = '\0';
+ 
+-	err = depmod_modules_search_dir(depmod, d, baselen, path);
++	err = depmod_modules_search_dir(depmod, d, baselen, &s_path_buf);
++out:
+ 	closedir(d);
+ 	return err;
+ }
+ 
++static int depmod_modules_search(struct depmod *depmod)
++{
++	int err;
++	struct cfg_external *ext;
++
++	err = depmod_modules_search_path(depmod, depmod->cfg->dirname);
++	if (err < 0)
++		return err;
++
++	for (ext = depmod->cfg->externals; ext != NULL; ext = ext->next) {
++		err = depmod_modules_search_path(depmod, ext->path);
++		if (err < 0 && err == -ENOENT)
++			/* ignore external dir absense */
++			continue;
++	}
++
++	return 0;
++}
++
+ static int mod_cmp(const void *pa, const void *pb) {
+ 	const struct mod *a = *(const struct mod **)pa;
+ 	const struct mod *b = *(const struct mod **)pb;
+-- 
+2.14.1
+
+--- kmod-20/man/depmod.d.5.orig	2017-08-17 16:01:34.330058135 +0300
++++ kmod-20/man/depmod.d.5	2017-08-17 16:01:37.901058086 +0300
+@@ -1,13 +1,13 @@
+ '\" t
+ .\"     Title: depmod.d
+ .\"    Author: Jon Masters <jcm@jonmasters.org>
+-.\" Generator: DocBook XSL Stylesheets v1.78.1 <http://docbook.sf.net/>
+-.\"      Date: 03/01/2015
++.\" Generator: DocBook XSL Stylesheets v1.79.1 <http://docbook.sf.net/>
++.\"      Date: 08/17/2017
+ .\"    Manual: depmod.d
+ .\"    Source: kmod
+ .\"  Language: English
+ .\"
+-.TH "DEPMOD\&.D" "5" "03/01/2015" "kmod" "depmod.d"
++.TH "DEPMOD\&.D" "5" "08/17/2017" "kmod" "depmod.d"
+ .\" -----------------------------------------------------------------
+ .\" * Define some portability stuff
+ .\" -----------------------------------------------------------------
+@@ -52,7 +52,11 @@
+ This allows you to specify the order in which /lib/modules (or other configured module location) subdirectories will be processed by
+ \fBdepmod\fR\&. Directories are listed in order, with the highest priority given to the first listed directory and the lowest priority given to the last directory listed\&. The special keyword
+ \fBbuilt\-in\fR
+-refers to the standard module directories installed by the kernel\&.
++refers to the standard module directories installed by the kernel\&. Another special keyword
++\fBexternal\fR
++refers to the list of external directories, defined by the
++\fBexternal\fR
++command\&.
+ .sp
+ By default, depmod will give a higher priority to a directory with the name
+ \fBupdates\fR
+@@ -73,6 +77,18 @@
+ \fBextra\fR
+ subdirectory within /lib/modules (or other module location) will take priority over any likenamed module already provided by the kernel\&.
+ .RE
++.PP
++external \fIkernelversion\fR \fIabsolutemodulesdirectory\&.\&.\&.\fR
++.RS 4
++This specifies a list of directories, which will be checked according to the priorities in the
++\fBsearch\fR
++command\&. The order matters also, the first directory has the higher priority\&.
++.sp
++The
++\fIkernelversion\fR
++is a POSIX regular expression or * wildcard, like in the
++\fBoverride\fR\&.
++.RE
+ .SH "COPYRIGHT"
+ .PP
+ This manual page Copyright 2006\-2010, Jon Masters, Red Hat, Inc\&.

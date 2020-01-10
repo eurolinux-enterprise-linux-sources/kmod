@@ -1,0 +1,40 @@
+From 6708fbf7d26c6241cc37614c632bba1ce4ef1a4e Mon Sep 17 00:00:00 2001
+From: Tony Camuso <tcamuso@redhat.com>
+Date: Fri, 24 Jun 2016 12:38:25 -0400
+Subject: [RHEL-7.3 PATCH 2/3] depmod: Ignore PowerPC64 ABIv2 .TOC. symbol
+
+Cherry-picked without conflicts from the following upstream commit.
+
+commit d46136bb59c46609ee8050636f0681f2831d2225
+Author: Anton Blanchard <anton@samba.org>
+Date:   Fri Jun 10 15:24:30 2016 +1000
+
+    depmod: Ignore PowerPC64 ABIv2 .TOC. symbol
+
+    The .TOC. symbol on the PowerPC64 ABIv2 identifies the GOT
+    pointer, similar to how other architectures use _GLOBAL_OFFSET_TABLE_.
+
+    This is not a symbol that needs relocation, and should be ignored
+    by depmod.
+
+Signed-off-by: Tony Camuso <tcamuso@redhat.com>
+---
+ tools/depmod.c | 2 ++
+ 1 file changed, 2 insertions(+)
+
+diff --git a/tools/depmod.c b/tools/depmod.c
+index 8d5c671..7b95832 100644
+--- a/tools/depmod.c
++++ b/tools/depmod.c
+@@ -2149,6 +2149,8 @@ static void depmod_add_fake_syms(struct depmod *depmod)
+ 	depmod_symbol_add(depmod, "__this_module", true, 0, NULL);
+ 	/* On S390, this is faked up too */
+ 	depmod_symbol_add(depmod, "_GLOBAL_OFFSET_TABLE_", true, 0, NULL);
++	/* On PowerPC64 ABIv2, .TOC. is more or less _GLOBAL_OFFSET_TABLE_ */
++	depmod_symbol_add(depmod, "TOC.", true, 0, NULL);
+ }
+ 
+ static int depmod_load_symvers(struct depmod *depmod, const char *filename)
+-- 
+1.8.3.1
+
